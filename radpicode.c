@@ -16,6 +16,7 @@ Email: fdougall@purdue.edu
 #include <wiringPiI2C.h>
 #include <time.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 // Selector Pins
 #define BANK_SELECT_1 0
@@ -148,17 +149,10 @@ void initEEPROMs() {
     }
 }
 
-void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, int* eepromFailures) {
+void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, int** eepromFailures) {
     time_t currTime = 0;
     int elapsedTime = 0; 
     int eepromSize = 0; 
-
-    // Go through b-th bank and set e-th EEPROM
-    for(int b = 0; b < NUM_BANKS; b++) {
-        for(int e = 0; e < EEPROMS_PER_BANK; e++) {
-            eepromFailures[b * NUM_BANKS + e] = 0; 
-        }
-    }
 
     // Initialize which addresses have failed
 
@@ -170,7 +164,7 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, int* eep
             int eepromAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom);
 
             if (eepromAddr == -1) {
-                fprintf("Bank %d, EEPROM%d, Failures: -1\n", bank, eeprom);
+                fprintf("%d, %d, -1\n", bank, eeprom);
             } else {
 	        	eepromSize = getEEPROMSize(bank, eeprom);
 
@@ -179,16 +173,15 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, int* eep
                     eepromSize = FAST_READ_SIZE;
                 }
 
-                for (int num = 0; num < eepromSize; num++) {
+                for (int num = 0; num < eepromSize; num++) {     
                     // Read the next byte in the eeprom
                     uint8_t data = wiringPiI2CRead(eepromAddr);
 
                     // Then there must be a bit flip
-
                     // this is not double count safe and will report more errors than in reality!
                     // need to implement a hashmap or some other LUT 
                     if (data != 0xFF) {
-                        eepromFailures[b * NUM_BANKS + e] = eepromFailures[b * NUM_BANKS + e] + 1; 
+                        eepromFailures[bank][eeprom] = eepromFailures[bank][eeprom] + 1; 
                     }
                 }
 
@@ -196,10 +189,8 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, int* eep
                 currTime = time(NULL); 
                 elapsedTime = (int)difftime(currTime, startTime); 
 
-                // Log to CSV file 
-                fprintf(csv_file, "Elapsed Time %d, Bank %d, EEPROM %d, Failures %d\n", elapsedTime, bank, eeprom, failures);
-                printf("Elapsed Time %d, Bank %d, EEPROM %d, Failures: %d\n", elapsedTime, bank, eeprom, failures);
-
+                fprintf(csv_file, "%d, %d, %d, %d\n", elapsedTime, bank, eeprom, eepromFailures[bank][eeprom]);
+                
                 // End our transactions with this EEPROM
                 close(eepromAddr);
             }
@@ -232,8 +223,6 @@ int main() {
 
     time_t ctime = time(NULL); 
 
-    printf("%d", choice);
-
     if(choice == 1) {
         initEEPROMs();  
         printf("Initialization took %d seconds!\n", (int)difftime(time(NULL), ctime)); 
@@ -243,26 +232,44 @@ int main() {
 
     // maybe modify this to have board # then current hhmmss
     sprintf(filename, "board %d data.csv", num);
-    FILE *csv_file = fopen(filename, "a");
+    FILE *csv_file = fopen(filename, "w");
 
     if (csv_file == NULL) {
         printf("Failed to open CSV file\n");
-        return;
+        return -1; 
     }
 
-    // Initialize failure array
-    int* eepromFailures = malloc( (EEPROMS_PER_BANK * NUM_BANKS) * sizeof(eepromFailures) );
+    fprintf(csv_file, "Elapsed Time, Bank, EEPROM, Failures\n");
+
+     // Initialize failure array
+    int** eepromFailures = (int**) malloc( NUM_BANKS * sizeof(eepromFailures) );
+
+    for(int b = 0; b < NUM_BANKS; b++) {
+        eepromFailures[b] = (int*) malloc(EEPROMS_PER_BANK * sizeof(int));
+    }
+
+    int a, q; 
+
+    // Go through a-th bank and set q-th EEPROM
+    for(a = 0; a < NUM_BANKS; a++) {
+        for(q = 0; q < EEPROMS_PER_BANK; q++) {
+            eepromFailures[a][q] = 0; 
+        }
+    }
 
     // Continuously log data - no sleep needed since takes time to read EEPROMs
     while ( (int)difftime(time(NULL), ctime) <= RUNNING_TIME_SEC ) {
-        logger(ctime, greedy, num, csv_file, eepromFailures);
+        logger(ctime, 0, num, csv_file, eepromFailures);
     }
 
     // Close & Free all allocated stuff
     fclose(csv_file);
+
+    for(int b = 0; b < NUM_BANKS; b++) {
+        free(eepromFailures[b]);
+    }
     free(eepromFailures); 
 
     printf("Completed and written to file.\n"); 
-
     return 0;
 }
