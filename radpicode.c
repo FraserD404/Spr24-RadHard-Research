@@ -30,7 +30,7 @@ Email: fdougall@purdue.edu
 
 // How long to run the test - seconds
 // default is 30 min -> 1800 seconds
-#define RUNNING_TIME_SEC 5
+#define RUNNING_TIME_SEC 1800
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
