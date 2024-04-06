@@ -200,6 +200,10 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPRO
 	    //printf("yeet %d", current->size);
             // make sure our EEPROM actually exists lol 
             if(current->i2cAddr >= 0) {
+
+                /*
+                do 512 in 128k blocks so more data points :) 
+                */
                 for (int byte = 0; byte < current->size; byte++) {     
                     int data = wiringPiI2CRead(current->i2cAddr);
 
