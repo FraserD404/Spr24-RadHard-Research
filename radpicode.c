@@ -34,15 +34,16 @@ Email: fdougall@purdue.edu
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+// technically this doesn't need to be a struck....
 typedef struct {
     uint8_t* addresses;
 } eepromMemArray; 
 
 typedef struct {
-    int size;
-    int failures; 
-    int i2cAddr; 
-    eepromMemArray* mems;
+    int size;             // size in bytes of eeprom
+    int failures;         // how many times has this EEPROM failed
+    int i2cAddr;          // where on the i2c bus is it
+    eepromMemArray* mems; // addresses that we know have failed
 } EEPROM; 
 
 typedef struct {
@@ -169,6 +170,8 @@ void initEEPROMs(allEEPROMs* population) {
                     current->mems = malloc(sizeof(current->mems)); 
                     (current->mems)->addresses = malloc(sizeof((current->mems)->addresses) * current->size);
 
+                    // Pros : Constant access time! O(1)
+                    // Cons : readability :( , space complexity gets yucky ; god bless gigabyte of RAM 
                     for(int l = 0; l < current->size; l++) {
                         ((current->mems)->addresses)[l] = 0; 
                     }
@@ -200,28 +203,34 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPRO
             // Get current EEPROM from total population
             current = &((population->all)[bank * EEPROMS_PER_BANK  + eeprom]);
 
-            for (int byte = 0; byte < current->size; byte++) {     
-                uint8_t data = wiringPiI2CRead(eepromAddr);
+            // make sure our EEPROM actually exists lol 
+            if(current->i2cAddr >= 0) {
+                for (int byte = 0; byte < current->size; byte++) {     
+                    uint8_t data = wiringPiI2CRead(eepromAddr);
 
-                if(data != 0xFF){
-                    // check to see if we've looked at this before
-                    // yay O(1) access but rip space complexity :( 
-                    if( ((current->mems)->addresses)[byte] != 1) {
-                        current->failures =  current->failures + 1; 
-                        (current->mems)->addresses[byte] = 1;
-                    } // otherwise we do not want to double count failure
+                    if(data != 0xFF && data >= 0){
+                        // check to see if we've looked at this before
+                        // yay O(1) access but rip space complexity :( 
+                        if( ((current->mems)->addresses)[byte] != 1) {
+                            current->failures =  current->failures + 1; 
+                            (current->mems)->addresses[byte] = 1;
+                        } // otherwise we do not want to double count failure
+                    } 
                 }
-            }
-            // get current time and calculate how long since we've started
-            currTime = time(NULL); 
-            elapsedTime = difftime(currTime, startTime); 
+                // get current time and calculate how long since we've started
+                currTime = time(NULL); 
+                elapsedTime = difftime(currTime, startTime); 
 
-            // Log to CSV file 
-            fprintf(csv_file, "%d, %d, %d, %d\n", elapsedTime, bank, eeprom, current->failures);
-            
-            close(current->i2cAddr); 
+                // Log to CSV file 
+                fprintf(csv_file, "%d, %d, %d, %d\n", elapsedTime, bank, eeprom, current->failures);
+                
+                close(current->i2cAddr); 
+            } else {
+                current->failures = -1337; // since it doesn't exist 
+            }
         }
     }
+
 
    // free(current); 
 }
@@ -317,7 +326,7 @@ int main() {
     allEEPROMs* population = (allEEPROMs*) malloc(sizeof(*population));
     
     // malloc storage of all our eeprom structs
-    population->all = (EEPROM*) malloc(totalEEPROMs * sizeof(population->all));
+    population->all = (EEPROM*) malloc(totalEEPROMs * sizeof(population->all)); // haha our only usage of totalEEPROMS :D 
 
     initEEPROMs(population);
 
@@ -330,6 +339,12 @@ int main() {
     fclose(csv_file);
 
     // still need to free all EEPROM elements :) 
+
+    // WHAT THE HECK IS A GARBAGE COLLECTOR RAHHHH
+    // I AM THE GARBAGE COLLECTOR
+    // THEY CALL ME THE TRASH MAN
+    // I COLLECT TRASH
+
     printf("Completed and written to file.\n"); 
 
     return 0;
