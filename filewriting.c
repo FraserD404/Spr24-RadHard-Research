@@ -244,11 +244,6 @@ int main() {
     // malloc storage of all our eeprom structs
     population->all = (EEPROM*) malloc(totalEEPROMs * sizeof(population->all));
 
-    // malloc all EEPROM structs
-    //for(int current = 0; current < totalEEPROMs; current++) {
-     //   (population->all)[0] = (EEPROM*) malloc(sizeof(EEPROM*)); 
-   // }
-
     initEEPROMs(population);
 
     // Continuously log data - no sleep needed since takes time to read EEPROMs

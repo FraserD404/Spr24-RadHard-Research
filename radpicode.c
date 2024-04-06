@@ -175,6 +175,7 @@ void initEEPROMs(allEEPROMs* population) {
                     for(int l = 0; l < current->size; l++) {
                         ((current->mems)->addresses)[l] = 0; 
                     }
+
                     printf("Initialized EEPROM %d in bank %d\n", eeprom, bank);
                 }
 
@@ -186,7 +187,6 @@ void initEEPROMs(allEEPROMs* population) {
     // free our temporary storage
    // free(current); 
 }
-
 
 void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPROMs* population) {
     time_t currTime = 0;
@@ -203,18 +203,20 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPRO
             // Get current EEPROM from total population
             current = &((population->all)[bank * EEPROMS_PER_BANK  + eeprom]);
 
+            current->i2cAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom); 
+
             // make sure our EEPROM actually exists lol 
             if(current->i2cAddr >= 0) {
                 for (int byte = 0; byte < current->size; byte++) {     
                     uint8_t data = wiringPiI2CRead(eepromAddr);
 
-                    if(data != 0xFF && data >= 0){
+                    if(data != 0xFF){
                         // check to see if we've looked at this before
                         // yay O(1) access but rip space complexity :( 
                         if( ((current->mems)->addresses)[byte] != 1) {
                             current->failures =  current->failures + 1; 
                             (current->mems)->addresses[byte] = 1;
-                        } // otherwise we do not want to double count failure
+                         } /// otherwise we do not want to double count failure
                     } 
                 }
                 // get current time and calculate how long since we've started
@@ -290,19 +292,12 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, int** ee
 int main() {
     initGPIO();
 
-    // Optionally initialize EEPROMs or not
-    printf("In1t EEPROMS?");
-    int choice;
-    scanf("%d", &choice);
 
-    /*
-    TEST MODES:
-    1. Greedy - Dump entire EEPROM each pass ; (much) slower but gets to later data in sizeable EEPROMs faster
-    2. Speedy - Dump set blocks of data from EEPROMs ; faster but takes longer to get to further data in big EEPROMs
-    */
-   // printf("Greedy (1) or Speedy? (else)"); 
-    //int greedy; 
-    //scanf("%d", &greedy);
+    // illusion of choice ^-^ 
+    // Optionally initialize EEPROMs or not
+    //printf("In1t EEPROMS?");
+    //int choice;
+   // scanf("%d", &choice);
 
     printf("Board number: ");
     int num; 
@@ -323,16 +318,20 @@ int main() {
     fprintf(csv_file, "Elapsed Time, Bank, EEPROM, Failures\n");
 
     // malloc our entire EEPROM handler
-    allEEPROMs* population = (allEEPROMs*) malloc(sizeof(*population));
+     allEEPROMs* population = (allEEPROMs*) malloc(sizeof(*population));
     
     // malloc storage of all our eeprom structs
-    population->all = (EEPROM*) malloc(totalEEPROMs * sizeof(population->all)); // haha our only usage of totalEEPROMS :D 
+    population->all = (EEPROM*) malloc(totalEEPROMs * sizeof(population->all));
 
+    // Initialize everything
     initEEPROMs(population);
 
     // Continuously log data - no sleep needed since takes time to read EEPROMs
     while ( (int)difftime(time(NULL), ctime) <= RUNNING_TIME_SEC ) {
         logger(ctime, 0, num, csv_file, population);
+
+        // log every second
+        sleep(1);
     }
 
     // Close & Free all allocated stuff
