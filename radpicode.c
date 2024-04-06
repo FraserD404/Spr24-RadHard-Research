@@ -24,7 +24,7 @@ Email: fdougall@purdue.edu
 
 // EEPROM Banking Information
 #define EEPROM_ADDRESS 0x50 // base EEPROM I2C address
-#define NUM_BANKS 3
+#define NUM_BANKS 2
 #define EEPROMS_PER_BANK 8
 #define MAX_EEPROM_SIZE 512000 // maximum size we have
 
@@ -35,15 +35,15 @@ Email: fdougall@purdue.edu
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 // technically this doesn't need to be a struck....
-typedef struct {
-    uint8_t* addresses;
-} eepromMemArray; 
+//typedef struct {
+   // uint8_t* addresses;
+//} eepromMemArray; 
 
 typedef struct {
     int size;             // size in bytes of eeprom
     int failures;         // how many times has this EEPROM failed
     int i2cAddr;          // where on the i2c bus is it
-    eepromMemArray* mems; // addresses that we know have failed
+    uint8_t* mems; // addresses that we know have failed
 } EEPROM; 
 
 typedef struct {
@@ -167,14 +167,7 @@ void initEEPROMs(allEEPROMs* population) {
 
                 if(init) {
                     // malloc our saved addresses array
-                    current->mems = malloc(sizeof(current->mems)); 
-                    (current->mems)->addresses = malloc(sizeof((current->mems)->addresses) * current->size);
-
-                    // Pros : Constant access time! O(1)
-                    // Cons : readability :( , space complexity gets yucky ; god bless gigabyte of RAM 
-                    for(int l = 0; l < current->size; l++) {
-                        ((current->mems)->addresses)[l] = 0; 
-                    }
+                   current->mems = calloc(current->size, sizeof(current->mems));
 
                     printf("Initialized EEPROM %d in bank %d\n", eeprom, bank);
                 }
@@ -202,20 +195,20 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPRO
         for (int eeprom = 0; eeprom < EEPROMS_PER_BANK; eeprom++) {
             // Get current EEPROM from total population
             current = &((population->all)[bank * EEPROMS_PER_BANK  + eeprom]);
-
             current->i2cAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom); 
 
+	    //printf("yeet %d", current->size);
             // make sure our EEPROM actually exists lol 
             if(current->i2cAddr >= 0) {
                 for (int byte = 0; byte < current->size; byte++) {     
-                    uint8_t data = wiringPiI2CRead(eepromAddr);
+                    int data = wiringPiI2CRead(current->i2cAddr);
 
-                    if(data != 0xFF){
+                    if(data != 0xFF && data > 0){
                         // check to see if we've looked at this before
                         // yay O(1) access but rip space complexity :( 
-                        if( ((current->mems)->addresses)[byte] != 1) {
+                        if( ((current->mems))[byte] != 1) {
                             current->failures =  current->failures + 1; 
-                            (current->mems)->addresses[byte] = 1;
+                            (current->mems)[byte] = 1;
                          } /// otherwise we do not want to double count failure
                     } 
                 }
@@ -237,57 +230,6 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPRO
    // free(current); 
 }
 
-/*
-void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, int** eepromFailures) {
-    time_t currTime = 0;
-    int elapsedTime = 0; 
-    int eepromSize = 0; 
-
-    // Initialize which addresses have failed
-
-    // Go through all EEPROMs and banks 
-    for (int bank = 0; bank < NUM_BANKS; bank++) {
-        selectBank(bank);
-
-        for (int eeprom = 0; eeprom < EEPROMS_PER_BANK; eeprom++) {
-            int eepromAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom);
-
-            if (eepromAddr == -1) {
-                fprintf("%d, %d, -1\n", bank, eeprom);
-            } else {
-	        	eepromSize = getEEPROMSize(bank, eeprom);
-
-                // Speed up reads of 512k's if we are speedy
-                if(eepromSize == 512000 && greedy != 1) {
-                    eepromSize = FAST_READ_SIZE;
-                }
-
-                for (int num = 0; num < eepromSize; num++) {     
-                    // Read the next byte in the eeprom
-                    uint8_t data = wiringPiI2CRead(eepromAddr);
-
-                    // Then there must be a bit flip
-                    // this is not double count safe and will report more errors than in reality!
-                    // need to implement a hashmap or some other LUT 
-                    if (data != 0xFF) {
-                        eepromFailures[bank][eeprom] = eepromFailures[bank][eeprom] + 1; 
-                    }
-                }
-
-                // get current time and calculate how long since we've started
-                currTime = time(NULL); 
-                elapsedTime = (int)difftime(currTime, startTime); 
-
-                fprintf(csv_file, "%d, %d, %d, %d\n", elapsedTime, bank, eeprom, eepromFailures[bank][eeprom]);
-                
-                // End our transactions with this EEPROM
-                close(eepromAddr);
-            }
-        }
-    }
-
-}
-*/
 
 int main() {
     initGPIO();
@@ -317,6 +259,9 @@ int main() {
 
     fprintf(csv_file, "Elapsed Time, Bank, EEPROM, Failures\n");
 
+    fclose(csv_file);
+    fopen(filename, "a");
+
     // malloc our entire EEPROM handler
      allEEPROMs* population = (allEEPROMs*) malloc(sizeof(*population));
     
@@ -326,12 +271,16 @@ int main() {
     // Initialize everything
     initEEPROMs(population);
 
-    // Continuously log data - no sleep needed since takes time to read EEPROMs
-    while ( (int)difftime(time(NULL), ctime) <= RUNNING_TIME_SEC ) {
-        logger(ctime, 0, num, csv_file, population);
+    // reset
+    ctime = time(NULL); 
 
-        // log every second
-        sleep(1);
+    printf("it's logging time\n");
+
+    // Continuously log data - no sleep needed since takes time to read EEPROMs
+    while ( (int)(difftime(time(NULL), ctime)) <= RUNNING_TIME_SEC ) {
+        logger(ctime, 0, num, csv_file, population);
+	fclose(csv_file); // update file
+	fopen(filename, "a");
     }
 
     // Close & Free all allocated stuff
