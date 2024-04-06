@@ -139,7 +139,7 @@ Initialize all EEPROMs to have 0xFF in all memory locations
 */
 void initEEPROMs(allEEPROMs* population) {
     // stores current eeprom
-    EEPROM* current = (EEPROM*) malloc(sizeof(current)); 
+    EEPROM* current = (EEPROM*) malloc(sizeof(EEPROM)); 
 
     for (int bank = 0; bank < NUM_BANKS; bank++) {
         selectBank(bank);
@@ -193,7 +193,7 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPRO
     int elapsedTime = 0; 
     int eepromSize = 0; 
 
-    EEPROM* current = (EEPROM*) malloc(sizeof(current)); 
+    EEPROM* current = (EEPROM*) malloc(sizeof(EEPROM)); 
 
     // Go through all EEPROMs and banks 
     for (int bank = 0; bank < NUM_BANKS; bank++) {
@@ -321,7 +321,7 @@ int main() {
      allEEPROMs* population = (allEEPROMs*) malloc(sizeof(*population));
     
     // malloc storage of all our eeprom structs
-    population->all = (EEPROM*) malloc(totalEEPROMs * sizeof(population->all));
+    population->all = (EEPROM*) calloc(totalEEPROMs, sizeof(EEPROM));
 
     // Initialize everything
     initEEPROMs(population);
