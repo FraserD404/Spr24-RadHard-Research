@@ -26,13 +26,33 @@ Email: fdougall@purdue.edu
 #define EEPROM_ADDRESS 0x50 // base EEPROM I2C address
 #define NUM_BANKS 3
 #define EEPROMS_PER_BANK 8
-
-// 512k Speedup constant (bytes)
-#define FAST_READ_SIZE 32000
+#define MAX_EEPROM_SIZE 512000 // maximum size we have
 
 // How long to run the test - seconds
 // default is 30 min -> 1800 seconds
-#define RUNNING_TIME_SEC 1800
+#define RUNNING_TIME_SEC 5
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+typedef struct {
+    uint8_t* addresses;
+} eepromMemArray; 
+
+typedef struct {
+    int size;
+    int failures; 
+    int i2cAddr; 
+    eepromMemArray* mems;
+} EEPROM; 
+
+typedef struct {
+    EEPROM* all;
+} allEEPROMs; 
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+// global variables :(
+int totalEEPROMs = NUM_BANKS * EEPROMS_PER_BANK; 
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -116,22 +136,27 @@ void selectBank(int bank) {
 /* 
 Initialize all EEPROMs to have 0xFF in all memory locations
 */
-void initEEPROMs() {
+void initEEPROMs(allEEPROMs* population) {
+    // stores current eeprom
+    EEPROM* current = (EEPROM*) malloc(sizeof(current)); 
+
     for (int bank = 0; bank < NUM_BANKS; bank++) {
         selectBank(bank);
 
         for (int eeprom = 0; eeprom < EEPROMS_PER_BANK; eeprom++) {
-            int eepromAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom);
+            // grab current EEPROM from array
+            current = &((population->all)[bank * EEPROMS_PER_BANK  + eeprom]);
+            current->i2cAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom);
 
-            if (eepromAddr < 0) {
+            if (current->i2cAddr < 0) {
                 printf("Failed to initialize EEPROM %d in bank %d\n", eeprom, bank);
             } else {
-		        int sizeBytes = getEEPROMSize(bank, eeprom);
+		        current->size = getEEPROMSize(bank, eeprom);
 		        bool init = true;
 
                 // Linearly initialize all locations in EEPROM ; wish this was faster but impossible for better than O(n)
-                for (int num = 0; num < sizeBytes; num++) {
-                    if (wiringPiI2CWrite(eepromAddr, 0xFF) == -1) {
+                for (int num = 0; num < current->size; num++) {
+                    if (wiringPiI2CWrite(current->i2cAddr, 0xFF) == -1) {
                         printf("Failed to write to EEPROM %d in bank %d\n", eeprom, bank);
                         init = false;
 
@@ -140,15 +165,68 @@ void initEEPROMs() {
                 }
 
                 if(init) {
+                    // malloc our saved addresses array
+                    current->mems = malloc(sizeof(current->mems)); 
+                    (current->mems)->addresses = malloc(sizeof((current->mems)->addresses) * current->size);
+
+                    for(int l = 0; l < current->size; l++) {
+                        ((current->mems)->addresses)[l] = 0; 
+                    }
                     printf("Initialized EEPROM %d in bank %d\n", eeprom, bank);
                 }
 
-                close(eepromAddr);
+                close(current->i2cAddr);
             }
         }
     }
+
+    // free our temporary storage
+   // free(current); 
 }
 
+
+void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPROMs* population) {
+    time_t currTime = 0;
+    int elapsedTime = 0; 
+    int eepromSize = 0; 
+
+    EEPROM* current = (EEPROM*) malloc(sizeof(current)); 
+
+    // Go through all EEPROMs and banks 
+    for (int bank = 0; bank < NUM_BANKS; bank++) {
+        selectBank(bank); 
+
+        for (int eeprom = 0; eeprom < EEPROMS_PER_BANK; eeprom++) {
+            // Get current EEPROM from total population
+            current = &((population->all)[bank * EEPROMS_PER_BANK  + eeprom]);
+
+            for (int byte = 0; byte < current->size; byte++) {     
+                uint8_t data = wiringPiI2CRead(eepromAddr);
+
+                if(data != 0xFF){
+                    // check to see if we've looked at this before
+                    // yay O(1) access but rip space complexity :( 
+                    if( ((current->mems)->addresses)[byte] != 1) {
+                        current->failures =  current->failures + 1; 
+                        (current->mems)->addresses[byte] = 1;
+                    } // otherwise we do not want to double count failure
+                }
+            }
+            // get current time and calculate how long since we've started
+            currTime = time(NULL); 
+            elapsedTime = difftime(currTime, startTime); 
+
+            // Log to CSV file 
+            fprintf(csv_file, "%d, %d, %d, %d\n", elapsedTime, bank, eeprom, current->failures);
+            
+            close(current->i2cAddr); 
+        }
+    }
+
+   // free(current); 
+}
+
+/*
 void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, int** eepromFailures) {
     time_t currTime = 0;
     int elapsedTime = 0; 
@@ -198,6 +276,7 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, int** ee
     }
 
 }
+*/
 
 int main() {
     initGPIO();
@@ -212,64 +291,46 @@ int main() {
     1. Greedy - Dump entire EEPROM each pass ; (much) slower but gets to later data in sizeable EEPROMs faster
     2. Speedy - Dump set blocks of data from EEPROMs ; faster but takes longer to get to further data in big EEPROMs
     */
-
-    printf("Greedy (1) or Speedy? (else)"); 
-    int greedy; 
-    scanf("%d", &greedy);
+   // printf("Greedy (1) or Speedy? (else)"); 
+    //int greedy; 
+    //scanf("%d", &greedy);
 
     printf("Board number: ");
     int num; 
     scanf("%d", &num); 
 
     time_t ctime = time(NULL); 
-
-    if(choice == 1) {
-        initEEPROMs();  
-        printf("Initialization took %d seconds!\n", (int)difftime(time(NULL), ctime)); 
-    }
-
+    
     char filename[50];
 
-    // maybe modify this to have board # then current hhmmss
     sprintf(filename, "board %d data.csv", num);
-    FILE *csv_file = fopen(filename, "w");
+    FILE *csv_file = fopen(filename, "a");
 
     if (csv_file == NULL) {
         printf("Failed to open CSV file\n");
-        return -1; 
+        return -1;
     }
 
     fprintf(csv_file, "Elapsed Time, Bank, EEPROM, Failures\n");
 
-     // Initialize failure array
-    int** eepromFailures = (int**) malloc( NUM_BANKS * sizeof(eepromFailures) );
+    // malloc our entire EEPROM handler
+    allEEPROMs* population = (allEEPROMs*) malloc(sizeof(*population));
+    
+    // malloc storage of all our eeprom structs
+    population->all = (EEPROM*) malloc(totalEEPROMs * sizeof(population->all));
 
-    for(int b = 0; b < NUM_BANKS; b++) {
-        eepromFailures[b] = (int*) malloc(EEPROMS_PER_BANK * sizeof(int));
-    }
-
-    int a, q; 
-
-    // Go through a-th bank and set q-th EEPROM
-    for(a = 0; a < NUM_BANKS; a++) {
-        for(q = 0; q < EEPROMS_PER_BANK; q++) {
-            eepromFailures[a][q] = 0; 
-        }
-    }
+    initEEPROMs(population);
 
     // Continuously log data - no sleep needed since takes time to read EEPROMs
     while ( (int)difftime(time(NULL), ctime) <= RUNNING_TIME_SEC ) {
-        logger(ctime, 0, num, csv_file, eepromFailures);
+        logger(ctime, 0, num, csv_file, population);
     }
 
     // Close & Free all allocated stuff
     fclose(csv_file);
 
-    for(int b = 0; b < NUM_BANKS; b++) {
-        free(eepromFailures[b]);
-    }
-    free(eepromFailures); 
-
+    // still need to free all EEPROM elements :) 
     printf("Completed and written to file.\n"); 
+
     return 0;
 }

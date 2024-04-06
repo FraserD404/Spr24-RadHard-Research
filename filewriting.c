@@ -90,18 +90,6 @@ int getEEPROMSize(int bank, int num) {
     return 1000 * sizeKB; 
 }
 
-/*
-for(int eIn = 0; eIn < totalEEPROMs; eIn++) {
-    eepromMemArray* initial = malloc(sizeof(eepromMemArray)); 
-
-    // allocate first node of memory array
-    ((population->all)[eIn])->mems = eepromMemArray; 
-
-    // this is terribly inefficient 
-   // (((population->all)[eIn] )->mems)->eepromMemArray = (uint8_t*) malloc(sizeof(uint8_t) * MAX_EEPROM_SIZE );
-}
-*/
-
 // pass into initialization function
 void initEEPROMs(allEEPROMs* population) {
     // stores current eeprom
