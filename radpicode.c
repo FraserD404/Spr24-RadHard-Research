@@ -194,6 +194,9 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPRO
 
         for (int eeprom = 0; eeprom < EEPROMS_PER_BANK; eeprom++) {
             // Get current EEPROM from total population
+
+		// this line does not properly bounds check
+		//potential segfault????
             current = &((population->all)[bank * EEPROMS_PER_BANK  + eeprom]);
             current->i2cAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom); 
 
@@ -207,7 +210,9 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPRO
                 for (int byte = 0; byte < current->size; byte++) {     
                     int data = wiringPiI2CRead(current->i2cAddr);
 
-                    if(data != 0xFF && data > 0){
+			// july 18 - this line changed from > to >= , which is more correct
+			// but untested as of today - this will be removed once confirmed
+                    if(data != 0xFF && data >= 0){
                         // check to see if we've looked at this before
                         // yay O(1) access but rip space complexity :( 
                         if( ((current->mems))[byte] != 1) {
