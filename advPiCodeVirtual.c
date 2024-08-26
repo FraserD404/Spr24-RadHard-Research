@@ -10,6 +10,10 @@
     Author: Fraser Dougall 
 	Email: fdougall@purdue.edu
 
+
+	THIS IS THE CODE THAT WILL BE USED TO TEST THINGS VIRTUALLY
+	NOT THE ACTUAL 
+
 */
 
 // Libraries
@@ -100,16 +104,19 @@ int getEEPROMSize(int bank, int num) {
 /*
    Initialize GPIO Pins
    */
+/*
    void initGPIO() {
    wiringPiSetup();
 
    pinMode(BANK_SELECT_1, OUTPUT);
    pinMode(BANK_SELECT_2, OUTPUT);
    }
+   */
 
 /*
    Choose with bank of EEPROM we are looking at by changing which switch state we are at
    */
+/*
    void selectBank(int bank) {
    switch (bank) {
    case 0:
@@ -133,6 +140,7 @@ int getEEPROMSize(int bank, int num) {
    break;
    }
    }
+   */
 
 /* 
    Initialize all EEPROMs to have 0xFF in all memory locations
@@ -142,19 +150,14 @@ void initEEPROMs(allEEPROMs* population) {
 	EEPROM* current = NULL;
 
 	for (int bank = 0; bank < NUM_BANKS; bank++) {
-		selectBank(bank);
+		//selectBank(bank);
 
 		for (int eeprom = 0; eeprom < EEPROMS_PER_BANK; eeprom++) {
 			// grab current EEPROM from array
 			current = (population->all) + (bank * EEPROMS_PER_BANK + eeprom); // this access is safe
 
-			if(current == NULL){
-				printf("EEPROM b%de%d is NULL during initEEPROMS!\n", bank, eeprom);
-				break;
-			}
-
-			current->i2cAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom);
-
+			// current->i2cAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom);
+			current->i2cAddr = 0xAF;
 
 			// make sure EEPROM exists before accessing
 			if (current->i2cAddr < 0) {
@@ -167,12 +170,14 @@ void initEEPROMs(allEEPROMs* population) {
 
 				// Linearly initialize all locations in EEPROM ; wish this was faster but impossible for better than O(n)
 				for (int num = 0; num < current->size; num++) {
+					/*
 					   if (wiringPiI2CWrite(current->i2cAddr, 0xFF) == -1) {
 					   printf("Failed to write to EEPROM %d in bank %d\n", eeprom, bank);
 					   init = false;
 
 					   break;
 					   } 		
+					*/
 				}
 
 				if(init) {
@@ -188,6 +193,10 @@ void initEEPROMs(allEEPROMs* population) {
 	}
 }
 
+
+// remove this when testing on physical hardware
+int correctValue = 0x0F;
+
 void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPROMs* population) {
 	time_t currTime = 0;
 	int elapsedTime = 0; 
@@ -197,34 +206,27 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPRO
 
 	// Go through all EEPROMs and banks 
 	for (int bank = 0; bank < NUM_BANKS; bank++) {
-		selectBank(bank); 
+		//selectBank(bank); 
 
 		for (int eeprom = 0; eeprom < EEPROMS_PER_BANK; eeprom++) {
 			// Get current EEPROM from total population
 			current = (population->all) + (bank * EEPROMS_PER_BANK + eeprom);
-
-			if(current == NULL){
-				printf("EEPROM b%de%d is NULL during log time!\n", bank, eeprom);
-				break;
-			}
-
-			// make sure the EEPROM is still alive
-			current->i2cAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom); 
+			// current->i2cAddr = wiringPiI2CSetup(EEPROM_ADDRESS + eeprom); 
 
 			// make sure our EEPROM actually exists lol 
 			if(current->i2cAddr >= 0) {
 				for (int byte = 0; byte < current->size; byte++) {     
-					// TODO: read from the specific location
-//					uint8_t data = wiringPiI2CRead(current->i2cAddr);
+					//int data = wiringPiI2CRead(current->i2cAddr);
 
-					uint8_t data = wiringPiI2CReadReg8(current->i2cAddr, byte);
-
-					if(data != (current->priorState)[byte] && data > 0){
+					// IN THIS CONTEXT correctValue == data so should be drop in replacement
+					if(correctValue != (current->priorState)[byte] && correctValue > 0){
 						current->failures = current->failures + 1; 
+
+						uint8_t theByte = correctValue; 
 						
 						for(uint8_t i = 0; i<8; i++){
 							// extract the bit we are looking at
-							uint8_t currBit = (data & (1 << i)) >> i; 
+							uint8_t currBit = (theByte & (1 << i)) >> i; 
 							uint8_t priorBit= ((current->priorState)[byte] & (1 << i)) >> i; 
 
 							// looks at 1->0 transitions 
@@ -238,37 +240,34 @@ void logger(time_t startTime, int greedy, int boardNum, FILE* csv_file, allEEPRO
 							}
 						}
 						
-						// restore to prior state (this should be okay but verify later)
-						wiringPiI2CWriteReg8(current->i2cAddr, byte, (current->priorState)[byte]);
+						// implement byte fixing here?
 
 						// update our prior state
-						(current->priorState)[byte] = data; 
-					} else{
-						printf("Failed to read from EEPROM b%de%d\n");
-					}
+//						(current->priorState)[byte] = (uint8_t) correctValue; 
+					} 
 				}
-
 				// get current time and calculate how long since we've started
 				currTime = time(NULL); 
 				elapsedTime = difftime(currTime, startTime); 
-
-				// check if we are above our elapsed time limit & break here?
 
 				// Log to CSV file 
 				fprintf(csv_file, "%d, %d, %d, %d\n", elapsedTime, bank, eeprom, current->failures);
 
 				close(current->i2cAddr); 
 			} else {
-				// this'll just underflow since failures is unsigned
 				current->failures = -1337; // since it doesn't exist 
 			}
 		}
 	}
+
+	if(correctValue == 0x0F){correctValue = 0xAB;}
+	else{correctValue = 0x0F;}
+
 }
 
 
 int main() {
-	initGPIO();
+	//    initGPIO();
 
 	// illusion of choice ^-^ 
 
